@@ -113,5 +113,5 @@
 這樣使用者就有一張完整的「程式地圖」＋「表格流程圖」了，可以快速對照每個函式的作用。  
 
 ---
-docker build -t family2-dashboard .
-docker run -d -p 8501:8501 --name family2-dashboard family2-dashboard
+docker build -t family3-dashboard .
+docker run -d -p 8501:8501 --name family3-dashboard family3-dashboard
