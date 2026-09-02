@@ -1,4 +1,31 @@
 
+# Run:
+# python -m streamlit run app_old.py
+
+
+####################################################
+# 0. 完整流程
+# CSS 美化
+# 資料載入與清理
+# 表單填寫
+# 統計總覽
+# 孩子比較
+# 資料清理報告
+# 項目管理
+# 主程式流程
+####################################################
+
+
+
+####################################################
+# 1. 基本設定與匯入套件
+# __future__ import annotations：讓 Python 在型別註解時更靈活，避免循環引用問題。
+# Pathlib.Path：用來處理檔案路徑，比 os.path 更直覺。
+# pandas：處理資料表格。
+# plotly.express / plotly.graph_objects：畫圖表。
+# streamlit：建立互動式網頁介面。
+# 這裡就是整個應用的基礎工具箱。
+####################################################
 
 from __future__ import annotations
 from pathlib import Path
@@ -8,18 +35,28 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from sheets_db import (
-    read_records,
-    append_record as append_sheet_record,
-)
 
-import sheets_db
-
+####################################################
+# 2. 檔案路徑與基本資料
+# APP_DIR：程式所在的資料夾。
+# SAMPLE_PATH：範例資料 CSV。
+# RECORD_PATH：使用者的紀錄檔案。
+# 這些路徑讓程式知道要去哪裡讀取或儲存資料。
+####################################################
 
 APP_DIR = Path(__file__).parent
 SAMPLE_PATH = APP_DIR /  "sample_data" / "housework_month_sampele.csv"
+DATA_DIR = APP_DIR / "data"
+RECORD_PATH = DATA_DIR  / "housework_records.csv"
 
-
+####################################################
+# 3. 家事分類與點數設定
+# CHILDREN：兩位孩子的名字。
+# CATEGORY_ORDER：家事類別的排序。
+# TASK_OPTIONS：每個類別有哪些具體任務。
+# DEFAULT_POINTS：每個任務的預設點數。
+# 這些設定讓表單和統計有一致的規則。
+####################################################
 
 CHILDREN = ["哥哥", "弟弟"]
 CATEGORY_ORDER = ["個人清潔", "居家整理", "學習相關", "餐飲協助", "信仰生活", "其他"]
@@ -45,6 +82,16 @@ FORM_COLUMNS = [
     "mood", "recorder", "note", "created_at",
 ]
 
+
+####################################################
+# 4. CSS 美化介面
+# 這裡用 CSS 改造 Streamlit 預設樣式。
+# :root{--purple:#7c3aed;} 定義顏色變數。
+# .stApp{background:...} 設定整體背景漸層。
+# .hero, .kpi-card, .child-card 等：自訂卡片樣式。
+# CSS 的作用就是讓介面更漂亮、更有一致性。
+# for details please refer to css_notes.md
+####################################################
 
 
 def css() -> None:
@@ -83,89 +130,82 @@ def css() -> None:
         unsafe_allow_html=True,
     )
 
+####################################################
+# 5. 載入檔案 load_file
+# 如果使用者有上傳檔案 → 判斷副檔名，支援 CSV 或 Excel。
+# 如果沒有上傳 → 優先讀取 RECORD_PATH（之前的紀錄）。
+# 如果紀錄檔不存在或是空的 → 使用範例檔 SAMPLE_PATH。
+# 這樣設計的好處是：永遠有資料可用，不會因為沒有上傳就報錯。
+####################################################
 
 
 def load_file(uploaded_file) -> pd.DataFrame:
-
-    # --------------------------------------------------------
-    # 1. 使用者有上傳 CSV / Excel
-    # --------------------------------------------------------
-
     if uploaded_file is not None:
-
         name = uploaded_file.name.lower()
-
         if name.endswith(".csv"):
             return pd.read_csv(uploaded_file)
-
         if name.endswith((".xlsx", ".xls")):
             return pd.read_excel(uploaded_file)
-
-        raise ValueError(
-            "只支援 CSV 或 Excel。"
-        )
-
-    # --------------------------------------------------------
-    # 2. 沒有上傳檔案
-    #    → 從 Google Sheets 讀取
-    # --------------------------------------------------------
-
-    records = read_records()
-
-    if not records.empty:
-        return records
-
-    # --------------------------------------------------------
-    # 3. Google Sheet 沒資料
-    #    → 使用範例資料
-    # --------------------------------------------------------
-
+        raise ValueError("只支援 CSV 或 Excel。")
+    if RECORD_PATH.exists() and RECORD_PATH.stat().st_size > 0:
+        records = pd.read_csv(RECORD_PATH)
+        if not records.empty:
+            return records
     return pd.read_csv(SAMPLE_PATH)
+
+####################################################
+# 6. 清理資料 clean_data
+# 清理後的資料就能直接用來做統計和圖表。
+####################################################
 
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
-   
+    # 先複製一份資料，避免修改原始檔。
+    # 把欄位名稱去掉多餘空白。
+    # 檢查是否缺少必要欄位（REQUIRED_COLUMNS），如果缺少就報錯。    
     df = df.copy()
     df.columns = [str(c).strip() for c in df.columns]
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError("資料缺少必要欄位：" + ", ".join(missing))
 
+
+    # 確保所有表單欄位都存在。
+    # 如果缺少 → 自動補上。
+        # 文字型欄位（心情、備註、建立時間）補空字串。
+        # 數值型欄位補 0。
     for col in FORM_COLUMNS:
         if col not in df.columns:
             df[col] = "" if col in ["mood", "recorder", "note", "created_at"] else 0
 
 
 
-    df["date"] = pd.to_datetime(
-        df["date"],
-        errors="coerce"
-    )
-
-    df["created_at"] = pd.to_datetime(
-        df["created_at"],
-        errors="coerce"
-    )
-
-
+    # 把日期轉成 datetime 格式。
+    # 把孩子、類別、項目欄位轉成字串並去掉空白。
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["child"] = df["child"].astype(str).str.strip()
     df["category"] = df["category"].astype(str).str.strip()
     df["task"] = df["task"].astype(str).str.strip()
 
 
-
+    # 把「次數」和「點數」轉成數字。
+    # 如果轉換失敗 → 補 0。
     df["times"] = pd.to_numeric(df["times"], errors="coerce").fillna(0).astype(int)
     df["points"] = pd.to_numeric(df["points"], errors="coerce").fillna(0).astype(int)
 
-
+    # 標準化「完成」欄位，把不同寫法（true/yes/完成）都轉成「是」或「否」。
+    # 新增一個布林欄位 is_completed，方便計算。
     df["completed"] = df["completed"].astype(str).str.strip().str.lower().replace(
         {"true":"是","1":"是","yes":"是","y":"是","完成":"是","false":"否","0":"否","no":"否","n":"否","未完成":"否"}
     )
     df["is_completed"] = df["completed"].eq("是")
 
 
-
+    # earned_points：完成的次數 × 每次點數。
+    # done_times：完成的次數（只算「是」）。
+    # day / month：方便做每日或每月統計。
+    # 最後刪掉日期為空的資料。
     df["earned_points"] = df["times"] * df["points"] * df["is_completed"].astype(int)
     df["done_times"] = df["times"] * df["is_completed"].astype(int)
     df["day"] = df["date"].dt.strftime("%m/%d")
@@ -173,10 +213,41 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     return df.dropna(subset=["date"])
 
 
+
+####################################################
+# 7. 新增紀錄 append_record
+# DATA_DIR.mkdir(exist_ok=True)：確保資料夾存在，沒有就建立。
+# row = pd.DataFrame([record], columns=FORM_COLUMNS)：把單筆紀錄轉成 DataFrame。
+# 如果紀錄檔存在 → 讀取舊資料，跟新紀錄合併。
+# 如果不存在 → 直接用新紀錄。
+# 最後存回 housework_records.csv。
+# 這樣就能把表單送出的紀錄持續累積。
+####################################################
+ 
+
 def append_record(record: dict[str, object]) -> None:
-    append_sheet_record(record)
+    DATA_DIR.mkdir(exist_ok=True)
+    row = pd.DataFrame([record], columns=FORM_COLUMNS)
+    if RECORD_PATH.exists() and RECORD_PATH.stat().st_size > 0:
+        old = pd.read_csv(RECORD_PATH)
+        out = pd.concat([old, row], ignore_index=True)
+    else:
+        out = row
+    out.to_csv(RECORD_PATH, index=False, encoding="utf-8-sig")
 
 
+####################################################
+# 8. 統計摘要 summary
+# total_days：有紀錄的天數。
+# total_possible：所有應完成的次數（不管有沒有完成）。
+# total_done：實際完成的次數。
+# total_points：完成後得到的總點數。
+# avg_daily：平均每天完成次數。
+# rate：完成率（完成次數 ÷ 應完成次數）。
+# child_points：依孩子分組，計算總點數。
+# mvp：點數最高的孩子。
+# 這個函式會回傳一個字典，後續用來顯示 KPI 卡片。
+####################################################
  
 def summary(df: pd.DataFrame) -> dict[str, object]:
     total_days = int(df["date"].dt.date.nunique())
@@ -193,6 +264,16 @@ def summary(df: pd.DataFrame) -> dict[str, object]:
     return {"days": total_days, "done": total_done, "points": total_points, "avg": avg_daily, "rate": rate, "mvp": mvp, "top_task": top_task}
 
 
+####################################################
+# 9. KPI 卡片 kpi_card
+# 用 HTML + CSS 顯示一張漂亮的 KPI 卡片。
+# title：指標名稱。
+# value：數值。
+# subtitle：補充說明。
+# icon：小圖示（emoji）。
+# 這就是儀表板上看到的「總完成天數」「平均每日完成」等卡片。
+####################################################
+
 def kpi_card(title: str, value: str, subtitle: str, icon: str) -> None:
     st.markdown(
         f"""
@@ -207,183 +288,48 @@ def kpi_card(title: str, value: str, subtitle: str, icon: str) -> None:
     )
 
 
+####################################################
+# 10. Hero 區塊 hero
+# 顯示一個「歡迎回來」的標題。
+# selected_month：會顯示目前選擇的月份。
+# 右邊有一個「匯出報告」按鈕樣式（目前只是裝飾，沒有功能）。
+# 用 CSS class .hero 美化成一個橫幅區塊。
+# 這是儀表板的開場白，讓使用者感覺更有互動性。
+####################################################
 
-def create_excel_report(
-    df: pd.DataFrame,
-    page: str,
-    selected_month: str,
-) -> bytes:
-    """
-    建立 Excel 報告，回傳 bytes，
-    可以直接提供給 Streamlit download_button。
-    """
-
-    from io import BytesIO
-
-    output = BytesIO()
-
-    with pd.ExcelWriter(
-        output,
-        engine="openpyxl",
-    ) as writer:
-
-        # --------------------------------------------------
-        # 1. 目前資料
-        # --------------------------------------------------
-        df_export = df.copy()
-
-        # datetime 欄位轉成 Excel 比較容易閱讀的格式
-        if "date" in df_export.columns:
-            df_export["date"] = pd.to_datetime(
-                df_export["date"],
-                errors="coerce",
-            ).dt.strftime("%Y-%m-%d")
-
-        if "created_at" in df_export.columns:
-            df_export["created_at"] = pd.to_datetime(
-                df_export["created_at"],
-                errors="coerce",
-            ).dt.strftime("%Y-%m-%d %H:%M:%S")
-
-        df_export.to_excel(
-            writer,
-            sheet_name="資料",
-            index=False,
-        )
-
-        # --------------------------------------------------
-        # 2. 報告資訊
-        # --------------------------------------------------
-        s = summary(df)
-
-        report_info = pd.DataFrame(
-            [
-                ["報告分頁", page],
-                ["統計月份", selected_month],
-                ["資料筆數", len(df)],
-                ["完成天數", s["days"]],
-                ["完成次數", s["done"]],
-                ["平均每日完成", round(s["avg"], 2)],
-                ["完成率", f"{s['rate']:.1%}"],
-                ["總獎勵點數", s["points"]],
-                ["最佳表現項目", s["top_task"]],
-                ["產生時間", pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")],
-            ],
-            columns=["項目", "內容"],
-        )
-
-        report_info.to_excel(
-            writer,
-            sheet_name="報告摘要",
-            index=False,
-        )
-
-        # --------------------------------------------------
-        # 3. 個人比較
-        # --------------------------------------------------
-        child_rows = []
-
-        for child in CHILDREN:
-            sub = df[df["child"] == child]
-
-            total = int(sub["times"].sum())
-            done = int(sub["done_times"].sum())
-            points = int(sub["earned_points"].sum())
-            rate = done / total if total else 0
-
-            child_rows.append(
-                {
-                    "孩子": child,
-                    "完成率": rate,
-                    "完成次數": done,
-                    "應完成次數": total,
-                    "獎勵點數": points,
-                }
-            )
-
-        pd.DataFrame(child_rows).to_excel(
-            writer,
-            sheet_name="孩子比較",
-            index=False,
-        )
-
-        # --------------------------------------------------
-        # 4. 家事類別統計
-        # --------------------------------------------------
-        category_report = (
-            df.groupby("category", as_index=False)
-            .agg(
-                完成次數=("done_times", "sum"),
-                獎勵點數=("earned_points", "sum"),
-            )
-            .sort_values(
-                "完成次數",
-                ascending=False,
-            )
-        )
-
-        category_report.to_excel(
-            writer,
-            sheet_name="類別統計",
-            index=False,
-        )
-
-    output.seek(0)
-
-    return output.getvalue()
-
-
-def hero(
-    selected_month: str,
-    df: pd.DataFrame,
-    page: str,
-) -> None:
-
+def hero(selected_month: str) -> None:
     st.markdown(
         f"""
         <div class="hero">
           <div>
             <h1>歡迎回來！一起看看孩子們這個月的表現吧！ 🎉</h1>
-            <p>
-                {selected_month} 家事執行總覽｜
-                可線上填寫、資料清理、圖表分析與統合報告
-            </p>
+            <p>{selected_month} 家事執行總覽｜可線上填寫、資料清理、圖表分析與統合報告</p>
           </div>
-          <div class="export-pill">
-              ⬇ 匯出報告
-          </div>
+          <div class="export-pill">⬇ 匯出報告</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    # 建立 Excel 報告
-    report_data = create_excel_report(
-        df=df,
-        page=page,
-        selected_month=selected_month,
-    )
 
-    # Streamlit 真正的下載按鈕
-    st.download_button(
-        label="⬇ 下載 Excel 報告",
-        data=report_data,
-        file_name=(
-            f"家事紀錄_{selected_month}_"
-            f"{page}.xlsx"
-        ),
-        mime=(
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        ),
-        use_container_width=True,
-    )
+####################################################
+# 11. 表單設計 render_form
+# 這是使用者每天填寫家事紀錄的入口。
+####################################################
+
 
 
 def render_form() -> None:
     st.markdown("<div class='section-title'>📝 今日填寫表單</div>", unsafe_allow_html=True)
 
-
+    # 注意：
+    # Streamlit 的 st.form 內部元件不會在選擇類別後立即重新整理，
+    # 所以「類別 / 項目」連動要放在一般 widget 中，而不是放在 st.form 裡。
+    # 這裡保留原本 4 欄 + 4 欄 + 備註 + 送出按鈕的版面配置，只修正連動邏輯。
+    # 用 st.columns 把表單分成四欄。
+    # date_input：選擇日期。
+    # selectbox：選擇孩子、類別、項目。
+    # task_options：根據類別動態顯示對應的任務。
     c1, c2, c3, c4 = st.columns([1, 1, 1.2, 1.2])
 
     # record_date改成可以用點選的日期選擇器，預設為今天的日期，並且可以選擇過去的日期。
@@ -414,7 +360,10 @@ def render_form() -> None:
     completed = c6.selectbox("完成", ["是", "否"], key="record_completed")
 
 
-
+    # number_input：輸入次數與點數。
+    # selectbox：選擇是否完成、孩子的狀態。
+    # 點數會根據任務自動帶入預設值。
+    # 用 task 當 key 的一部分，讓切換項目時預設點數可以跟著更新。
     points = c7.number_input(
         "每次點數",
         min_value=0,
@@ -431,7 +380,11 @@ def render_form() -> None:
     )
 
 
-
+    # text_input：輸入備註。
+    # button：送出表單。
+    # 當按下送出 → 呼叫 append_record() 把紀錄存到 CSV。
+    # 顯示成功訊息。
+    # st.balloons()：放氣球動畫，增加趣味性。
     note = st.text_input(
         "備註（可空白）",
         placeholder="例如：今天主動完成，值得鼓勵",
@@ -441,8 +394,7 @@ def render_form() -> None:
     submitted = st.button("送出紀錄 ✅", use_container_width=True)
 
     if submitted:
-
-        record = {
+        append_record({
             "date": record_date.isoformat(),
             "child": child,
             "category": category,
@@ -453,26 +405,16 @@ def render_form() -> None:
             "mood": mood,
             "recorder": "線上表單",
             "note": note.strip(),
-            "created_at": pd.Timestamp.now().strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
-        }
+            "created_at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
+        st.success("已儲存！重新整理或切到總覽即可看到最新統計。")
+        st.balloons()
 
-        try:
 
-            append_record(record)
-
-            st.success(
-                "✅ 已成功儲存到 Google Sheets！"
-            )
-
-            st.balloons()
-
-        except Exception as exc:
-
-            st.error(
-                f"❌ Google Sheets 寫入失敗：{exc}"
-            )
+####################################################
+# 12. 總覽儀表板 render_overview
+# 先呼叫 summary(df)，取得統計摘要（天數、完成率、MVP 等）。
+####################################################
 
 
 
@@ -560,7 +502,26 @@ def render_overview(df: pd.DataFrame) -> None:
     st.markdown(f"<div class='cheer'>🏆 每一個小小的努力，都是成長的大步！本月最常完成的是「{best_task}」，繼續保持！ ⭐</div>", unsafe_allow_html=True)
 
 
+####################################################
+# 13. 個人表現比較 render_child_compare
+# 建立一個「個人表現比較」區塊。
+# 用 st.columns(2) 把畫面分成兩欄，分別顯示哥哥和弟弟。
+# sub：篩選出某個孩子的紀錄。
+# 計算：
+    # total：應完成次數。
+    # done：實際完成次數。
+    # points：獎勵點數。
+    # rate：完成率。
+# color_class：不同孩子用不同顏色的進度條。
 
+# 每個孩子顯示一張卡片：
+# 👦 頭像。
+# 完成率（百分比）。
+# 進度條（不同顏色）。
+# 完成次數、應完成次數、獎勵點數。
+# 用 CSS class .child-card 美化。
+# 這樣就能直觀比較兩位孩子的表現。
+####################################################
 
 def render_child_compare(df: pd.DataFrame) -> None:
     st.markdown("<div class='soft-card'><div class='section-title'>個人表現比較</div>", unsafe_allow_html=True)
@@ -592,6 +553,19 @@ def render_child_compare(df: pd.DataFrame) -> None:
 
 
 
+####################################################
+# 14. 資料清理報告 render_cleaning
+# 顯示清理後資料的基本統計：
+    # 總筆數。
+    # 欄位數。
+    # 空值數量。
+    # 重複列數。
+
+# 提示清理規則。
+# 顯示每個欄位的型態與空值數。
+# 提供下載清理後 CSV 的按鈕。
+# 這部分是給家長或老師檢查資料品質用的。
+####################################################
 
 def render_cleaning(df: pd.DataFrame) -> None:
     st.subheader("資料清理與統合報告")
@@ -606,7 +580,29 @@ def render_cleaning(df: pd.DataFrame) -> None:
     st.download_button("下載清理後資料 CSV", df.to_csv(index=False).encode("utf-8-sig"), "cleaned_housework_data.csv", "text/csv", use_container_width=True)
 
 
+####################################################
+# 15. 家事項目管理 render_task_schema
+# 顯示一個表格，列出建議的欄位：
+# date：日期。
+# child：孩子。
+# category：類別。
+# task：項目。
+# times：次數。
+# completed：是否完成。
+# points：每次點數。
+# mood：完成狀態。
+# note：備註。
+# 每個欄位都有「說明」和「用途」。
+# 這部分是給家長或老師參考，確保紀錄表格設計合理。
 
+# 顯示另一個表格，列出所有建議的家事項目。
+# 每個項目包含：
+# 類別。
+# 項目名稱。
+# 建議點數（從 DEFAULT_POINTS 取值）。
+# 用 st.dataframe 顯示成表格。
+# 這樣就能一目了然知道有哪些家事任務，以及建議的獎勵點數。
+####################################################
 
 def render_task_schema() -> None:
     st.subheader("建議的家事紀錄表欄位")
@@ -624,11 +620,14 @@ def render_task_schema() -> None:
     st.dataframe(pd.DataFrame(task_rows), use_container_width=True, hide_index=True)
 
 
+####################################################
+# 16. 主程式流程 main
+# 設定網頁標題、icon、版面。
+# 呼叫 css() 套用自訂樣式。
+####################################################
 
 def main() -> None:
     st.set_page_config(page_title="家事紀錄儀表板", page_icon="🏠", layout="wide")
-
-
     css()
     with st.sidebar:
         st.title("🏠 家事紀錄儀表板")
@@ -666,46 +665,25 @@ def main() -> None:
     if selected_category != "全部":
         filtered = filtered[filtered["category"] == selected_category]
 
-    hero(
-        selected_month=selected_month,
-        df=filtered,
-        page=page,
-    )
 
-    
+    # 根據選單顯示不同頁面：
+    # 總覽 → render_overview
+    # 線上填寫 → render_form
+    # 資料清理 → render_cleaning
+    # 項目管理 → render_task_schema
+    # 資料表 → 顯示原始表格。
+    hero(selected_month)
     if page == "總覽儀表板":
         render_overview(filtered)
-
     elif page == "線上填寫":
         render_form()
-
         st.divider()
         st.subheader("最近填寫紀錄")
-
         try:
-            latest = clean_data(
-                read_records()
-            )
-
-            latest = (
-                latest
-                .sort_values(
-                    "created_at",
-                    ascending=False,
-                    na_position="last",
-                )
-                .head(30)
-            )
-
-            st.dataframe(
-                latest[FORM_COLUMNS],
-                use_container_width=True,
-                hide_index=True,
-            )
-
-        except Exception as exc:
-            st.error(f"最近填寫紀錄讀取失敗：{exc}")
-
+            latest = clean_data(load_file(None)).sort_values("created_at", ascending=False).head(30)
+            st.dataframe(latest[FORM_COLUMNS], use_container_width=True, hide_index=True)
+        except Exception:
+            st.info("目前尚無填寫紀錄。")
     elif page == "資料清理":
         render_cleaning(filtered)
     elif page == "家事項目管理":
