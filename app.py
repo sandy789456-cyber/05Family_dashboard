@@ -15,6 +15,9 @@ from sheets_db import (
 
 import sheets_db
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 
 APP_DIR = Path(__file__).parent
 SAMPLE_PATH = APP_DIR /  "sample_data" / "housework_month_sampele.csv"
@@ -453,9 +456,9 @@ def render_form() -> None:
             "mood": mood,
             "recorder": "線上表單",
             "note": note.strip(),
-            "created_at": pd.Timestamp.now().strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
+            "created_at": datetime.now(
+                ZoneInfo("Asia/Taipei")
+            ).strftime("%Y-%m-%d %H:%M:%S"),
         }
 
         try:
