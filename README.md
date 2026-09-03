@@ -1,117 +1,83 @@
-**完整流程地圖（文字版）**，把整個程式的運作串起來，讓使用者一眼就能看懂各個函式之間的關係。
+# 家庭家事 Dashboard
 
----
+以 Streamlit 建立的家庭家事紀錄與分析 Dashboard。
 
-## 🏠 家事紀錄儀表板程式流程圖
+## 功能
+- 線上填寫家事紀錄
+- 孩子／類別／任務／次數／完成狀態／點數
+- 月份與孩子篩選
+- 統計與圖表
+- Google Sheets 雲端資料儲存
+- Docker + Render 部署
+- Excel 報告匯出（持續擴充）
 
-### 1. 啟動主程式 `main`
-- 設定頁面標題、icon、版面。
-- 套用自訂 CSS。
-- 側邊欄顯示：
-  - 功能選單（總覽、填寫、清理、項目管理、資料表）。
-  - 檔案上傳 / 範例下載。
-  - 篩選條件（月份、孩子、類別）。
+## 架構
+```text
+User → Streamlit/app.py → sheets_db.py → Google Sheets API → Google Sheets
+Git → GitHub → Render → Docker → Streamlit
+```
 
----
+## 專案結構
+```text
+dashboard/
+├── app.py
+├── sheets_db.py
+├── requirements.txt
+├── Dockerfile
+├── .gitignore
+├── .env.example
+└── sample_data/
+    └── housework_month_sampele.csv
+```
 
-### 2. 資料處理流程
-- `load_file()`：載入檔案（上傳 → 紀錄檔 → 範例檔）。
-- `clean_data()`：清理資料（欄位檢查、格式轉換、完成率計算）。
-- 篩選資料 → `filtered`（依月份、孩子、類別）。
+`google-service-account.json` 僅供本機使用，不加入 Git。
 
----
+## 本機執行
+```powershell
+python -m venv env_dash
+.\env_dash\Scripts\Activate.ps1
+pip install -r requirements.txt
+streamlit run app.py
+```
 
-### 3. 頁面顯示邏輯
-- `hero()`：顯示歡迎橫幅。
-- 根據選單顯示不同頁面：
-  - **總覽儀表板** → `render_overview(filtered)`
-  - **線上填寫** → `render_form()`
-  - **資料清理** → `render_cleaning(filtered)`
-  - **家事項目管理** → `render_task_schema()`
-  - **資料表** → 顯示原始表格
+## Google Sheets 欄位
+```text
+date, child, category, task, times, completed, points, mood, recorder, note, created_at
+```
 
----
+## Render Environment Variables
+```text
+GOOGLE_SPREADSHEET_ID
+GOOGLE_SHEET_NAME
+GOOGLE_SERVICE_ACCOUNT_JSON
+```
 
-### 4. 功能模組
-- **新增紀錄** → `append_record()`  
-  把表單送出的紀錄存到 CSV。
-- **統計摘要** → `summary()`  
-  計算天數、完成率、MVP。
-- **KPI 卡片** → `kpi_card()`  
-  顯示漂亮的統計卡片。
-- **總覽儀表板** → `render_overview()`  
-  - KPI 卡片。
-  - 折線圖（每日完成趨勢）。
-  - 圓餅圖（類別分布）。
-  - 排行榜（TOP 5）。
-  - 弱項分析。
-  - 孩子比較 → `render_child_compare()`
-  - 鼓勵訊息。
-- **資料清理報告** → `render_cleaning()`  
-  顯示欄位型態、空值數、下載清理後 CSV。
-- **家事項目管理** → `render_task_schema()`  
-  顯示建議欄位與建議任務。
+## Docker
+```powershell
+docker build -t family-housework-dashboard .
+docker run --rm -p 8501:8501 -e PORT=8501 family-housework-dashboard
+```
 
----
+## Git
+```powershell
+git add .
+git commit -m "Update project"
+git push
+```
 
-### 5. CSS 美化
-- 全域背景漸層。
-- 側邊欄樣式。
-- Hero 區塊。
-- KPI 卡片。
-- 孩子比較卡片。
-- 排行榜進度條。
-- 鼓勵訊息。
+## 安全
+不要提交：
+```text
+google-service-account.json
+.env
+.streamlit/secrets.toml
+```
 
----
+若 credential 曾公開，應撤銷並重新建立 key。
 
-## 🌟 總結
-整個程式的運作就像一個小型系統：
-1. **資料來源** → 上傳 / 紀錄檔 / 範例檔。  
-2. **資料清理** → 格式統一、計算完成率。  
-3. **功能選單** → 儀表板、表單、清理、項目管理。  
-4. **視覺化展示** → KPI 卡片、圖表、排行榜、比較。  
-5. **互動性** → 表單送出、氣球動畫、下載清理後資料。  
-
----
-
- **表格版流程圖**
-
-
----
-
-## 📋 家事紀錄儀表板流程表
-
-| 模組 / 函式 | 功能 | 輸入 | 輸出 / 顯示 |
-|-------------|------|------|-------------|
-| **main** | 主程式入口，控制整體流程 | 使用者選單、上傳檔案 | 呼叫不同頁面函式 |
-| **css** | 套用自訂樣式 | 無 | 美化背景、卡片、側邊欄 |
-| **load_file** | 載入資料檔案 | 上傳檔案 / 紀錄檔 / 範例檔 | DataFrame |
-| **clean_data** | 清理資料 | DataFrame | 格式化後的 DataFrame（完成率、點數等） |
-| **append_record** | 新增紀錄 | 表單輸入 | 更新 CSV 檔案 |
-| **summary** | 統計摘要 | DataFrame | 字典（天數、完成率、MVP 等） |
-| **kpi_card** | 顯示 KPI 卡片 | 標題、數值、說明、icon | HTML 卡片 |
-| **hero** | 歡迎橫幅 | 選擇月份 | 標題 + 匯出報告按鈕 |
-| **render_form** | 表單填寫 | 使用者輸入 | 新增紀錄、顯示成功訊息 |
-| **render_overview** | 總覽儀表板 | DataFrame | KPI 卡片、折線圖、圓餅圖、排行榜、弱項分析、孩子比較、鼓勵訊息 |
-| **render_child_compare** | 孩子比較 | DataFrame | 哥哥 vs 弟弟完成率、次數、點數 |
-| **render_cleaning** | 資料清理報告 | DataFrame | 欄位型態、空值數、下載清理後 CSV |
-| **render_task_schema** | 家事項目管理 | 無 | 建議欄位表格、建議任務表格 |
-
----
-
-## 🌟 總結
-整個程式就像一個 **小型系統**：
-1. **資料來源** → 上傳 / 紀錄檔 / 範例檔。  
-2. **資料清理** → 格式統一、計算完成率。  
-3. **功能選單** → 儀表板、表單、清理、項目管理。  
-4. **視覺化展示** → KPI 卡片、圖表、排行榜、比較。  
-5. **互動性** → 表單送出、氣球動畫、下載清理後資料。  
-
----
-
-這樣使用者就有一張完整的「程式地圖」＋「表格流程圖」了，可以快速對照每個函式的作用。  
-
----
-docker build -t family3-dashboard .
-docker run -d -p 8501:8501 --name family3-dashboard family3-dashboard
+## 部署驗證
+1. 開啟 Render URL
+2. 新增一筆測試資料
+3. 確認 Google Sheets 出現
+4. 確認 Dashboard 讀回
+5. 確認最近紀錄與統計正常
